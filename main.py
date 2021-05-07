@@ -25,16 +25,15 @@ z.extractall()
 if get_geo_date==True:
     file_path = 'sh_statbel_statistical_sectors_20200101.geojson/sh_statbel_statistical_sectors_20200101.geojson'
     be_geo_data = gpd.read_file(file_path)
-    be_geo_data = be_geo_data.rename(columns={'cd_munty_refnis' : 'CD_MUNTY_REFNIS',
-                                              'tx_rgn_descr_fr' : 'TX_RGN_DESCR_FR'})
+
     ## get municipalities
-    be_geo_data_nis = be_geo_data[['CD_MUNTY_REFNIS', 'geometry']]
-    be_geo_data_nis = be_geo_data.dissolve(by='CD_MUNTY_REFNIS')
+    be_geo_data_nis = be_geo_data[['cd_munty_refnis', 'geometry']]
+    be_geo_data_nis = be_geo_data.dissolve(by='cd_munty_refnis')
     be_geo_data_nis.to_file('sh_statbel_statistical_nis.geojson', driver='GeoJSON')
 
     ## get regions
-    be_geo_data_rgn = be_geo_data[['TX_RGN_DESCR_FR', 'geometry']]
-    be_geo_data_rgn = be_geo_data_rgn.dissolve(by='TX_RGN_DESCR_FR')
+    be_geo_data_rgn = be_geo_data[['tx_rgn_descr_fr', 'geometry']]
+    be_geo_data_rgn = be_geo_data_rgn.dissolve(by='tx_rgn_descr_fr')
     be_geo_data_rgn.to_file('sh_statbel_statistical_rgn.geojson', driver='GeoJSON')
 else:
     be_geo_data_nis = gpd.read_file('sh_statbel_statistical_nis.geojson')
@@ -47,13 +46,13 @@ if get_covid_data == True:
     json_data = r.json()
     ## transform to dataframe
     covid_data_pd = pd.DataFrame.from_records(json_data)
-    covid_data_pd = covid_data_pd.rename(columns={'NIS5' : 'CD_MUNTY_REFNIS'})
-    covid_data_pd = covid_data_pd[['CD_MUNTY_REFNIS', 'CASES', 'DATE']]
+    covid_data_pd = covid_data_pd.rename(columns={'NIS5' : 'cd_munty_refnis'})
+    covid_data_pd = covid_data_pd[['cd_munty_refnis', 'CASES', 'DATE']]
     covid_data_pd = covid_data_pd.dropna()
 
     ## get all different municipalities
     all_cities_df = pd.DataFrame()
-    all_cities_df['CD_MUNTY_REFNIS'] = pd.Series(covid_data_pd['CD_MUNTY_REFNIS'].unique())
+    all_cities_df['cd_munty_refnis'] = pd.Series(covid_data_pd['cd_munty_refnis'].unique())
     all_cities_df['merge_key'] = 1
 
     ## get all different dates
@@ -63,20 +62,20 @@ if get_covid_data == True:
 
     ## merge all dates municipalities to have all combinations of both
     covid_data_pd_full = pd.merge(all_dates_df, all_cities_df, left_on='merge_key', right_on='merge_key', how='left')
-    covid_data_pd_full = pd.merge(covid_data_pd_full, covid_data_pd, on=['DATE', 'CD_MUNTY_REFNIS'], how='left')
+    covid_data_pd_full = pd.merge(covid_data_pd_full, covid_data_pd, on=['DATE', 'cd_munty_refnis'], how='left')
     covid_data_pd_full = covid_data_pd_full.drop('merge_key', axis=1)
     ## set nb cases to 0 when missing
     covid_data_pd_full['CASES'] = covid_data_pd_full['CASES'].fillna(0)
-    covid_data_pd_full['CD_MUNTY_REFNIS'] = covid_data_pd_full['CD_MUNTY_REFNIS'].astype(str)
-
+    covid_data_pd_full['cd_munty_refnis'] = covid_data_pd_full['cd_munty_refnis'].astype(str)
     be_geo_data_nis = be_geo_data_nis.reset_index(drop=True)
-    be_geo_data_nis['CD_MUNTY_REFNIS'] = be_geo_data_nis['CD_MUNTY_REFNIS'].astype(str)
+    be_geo_data_nis['cd_munty_refnis'] = be_geo_data_nis['cd_munty_refnis'].astype(str)
 
     ## save centroid and not polygons
     be_geo_data_nis['centroid'] = be_geo_data_nis.centroid
-    be_geo_data_nis = be_geo_data_nis[['CD_MUNTY_REFNIS', 'centroid']]
-    be_geo_data_nis_covid = pd.merge(covid_data_pd_full, be_geo_data_nis, left_on='CD_MUNTY_REFNIS', right_on='CD_MUNTY_REFNIS', how='left')
+    be_geo_data_nis = be_geo_data_nis[['cd_munty_refnis', 'centroid']]
+    be_geo_data_nis_covid = pd.merge(covid_data_pd_full, be_geo_data_nis, left_on='cd_munty_refnis', right_on='cd_munty_refnis', how='left')
     be_geo_data_nis_covid.to_csv('be_geo_data_nis_covid.csv', index=False)
+
 #%%
 ## get the saved pandas and transform it to geopandas
 be_geo_data_nis_covid = pd.read_csv('be_geo_data_nis_covid.csv')
@@ -85,13 +84,15 @@ be_geo_data_nis_covid['centroid'] = gpd.GeoSeries.from_wkt(be_geo_data_nis_covid
 be_geo_data_nis_covid_gpd = gpd.GeoDataFrame(be_geo_data_nis_covid, geometry='centroid')
 ## transform <5 into mean = 2.5
 be_geo_data_nis_covid_gpd['CASES'] = be_geo_data_nis_covid_gpd['CASES'].str.replace('<5', '2.5').astype(float)
+
 #%%
 ## use a moving average of 7 days to decrease the volatility
-mavg_df = be_geo_data_nis_covid_gpd.groupby('CD_MUNTY_REFNIS')['CASES'].rolling(7).mean()
+mavg_df = be_geo_data_nis_covid_gpd.groupby('cd_munty_refnis')['CASES'].rolling(7).mean()
 mavg_df.reset_index(0, drop=True, inplace=True)
 mavg_df = mavg_df.rename('CASES_mavg')
 be_geo_data_nis_covid_gpd = pd.concat([be_geo_data_nis_covid_gpd, mavg_df], axis=1)
 be_geo_data_nis_covid_gpd['CASES_mavg'] = be_geo_data_nis_covid_gpd['CASES_mavg'].fillna(0)
+
 #%%
 ## get the list of unique dates
 date_list = [date for date in be_geo_data_nis_covid_gpd['DATE'].unique()]
